@@ -35,6 +35,8 @@ set release_urls_arg=
 set build_release=
 set enable_vtune_profiling=
 set configure_flags=
+set engine=v8
+set openssl_no_asm=
 
 :next-arg
 if "%1"=="" goto args-done
@@ -44,6 +46,7 @@ if /i "%1"=="clean"         set target=Clean&goto arg-ok
 if /i "%1"=="ia32"          set target_arch=x86&goto arg-ok
 if /i "%1"=="x86"           set target_arch=x86&goto arg-ok
 if /i "%1"=="x64"           set target_arch=x64&goto arg-ok
+if /i "%1"=="arm"           set target_arch=arm&goto arg-ok
 if /i "%1"=="noprojgen"     set noprojgen=1&goto arg-ok
 if /i "%1"=="nobuild"       set nobuild=1&goto arg-ok
 if /i "%1"=="nosign"        set nosign=1&goto arg-ok
@@ -69,6 +72,9 @@ if /i "%1"=="intl-none"     set i18n_arg=%1&goto arg-ok
 if /i "%1"=="download-all"  set download_arg="--download=all"&goto arg-ok
 if /i "%1"=="ignore-flaky"  set test_args=%test_args% --flaky-tests=dontcare&goto arg-ok
 if /i "%1"=="enable-vtune"  set enable_vtune_profiling="--enable-vtune-profiling"&goto arg-ok
+if /i "%1"=="v8"            set engine=v8&goto arg-ok
+if /i "%1"=="chakracore"    set engine=chakracore&set chakra_jslint=deps\chakrashim\lib&goto arg-ok
+if /i "%1"=="openssl-no-asm" set openssl_no_asm=--openssl-no-asm&goto arg-ok
 
 echo Warning: ignoring invalid command line option `%1`.
 
@@ -85,6 +91,10 @@ if defined build_release (
   set licensertf=1
   set download_arg="--download=all"
   set i18n_arg=small-icu
+)
+
+if "%target_arch%"=="arm" (
+    if not "%openssl_no_asm%"=="--openssl-no-asm" goto arm-requires-openssl-no-asm
 )
 
 if "%config%"=="Debug" set configure_flags=%configure_flags% --debug
@@ -169,8 +179,8 @@ goto run
 if defined noprojgen goto msbuild
 
 @rem Generate the VS project.
-echo configure %configure_flags% %enable_vtune_profiling% --dest-cpu=%target_arch% --tag=%TAG%
-python configure %configure_flags% %enable_vtune_profiling% --dest-cpu=%target_arch% --tag=%TAG%
+echo configure %configure_flags% %enable_vtune_profiling% --engine=%engine% %openssl_no_asm% --dest-cpu=%target_arch% --tag=%TAG%
+python configure %configure_flags% %enable_vtune_profiling% --engine=%engine% %openssl_no_asm% --dest-cpu=%target_arch% --tag=%TAG%
 if errorlevel 1 goto create-msvs-files-failed
 if not exist node.sln goto create-msvs-files-failed
 echo Project files generated.
@@ -244,6 +254,7 @@ goto exit
 if "%test_args%"=="" goto jslint
 if "%config%"=="Debug" set test_args=--mode=debug %test_args%
 if "%config%"=="Release" set test_args=--mode=release %test_args%
+set test_args=--engine %engine% %test_args%
 echo running 'cctest'
 "%config%\cctest"
 echo running 'python tools\test.py %test_args%'
@@ -253,11 +264,16 @@ goto jslint
 :jslint
 if not defined jslint goto exit
 echo running jslint
-%config%\node tools\eslint\bin\eslint.js src lib test tools\eslint-rules --rulesdir tools\eslint-rules --reset --quiet
+%config%\node tools\eslint\bin\eslint.js src lib test %chakra_jslint% tools\eslint-rules --rulesdir tools\eslint-rules --reset --quiet
 goto exit
 
 :create-msvs-files-failed
 echo Failed to create vc project files.
+goto exit
+
+:arm-requires-openssl-no-asm
+echo openssl asm is currently not supported on arm
+echo use 'openssl-no-asm' as additional argument
 goto exit
 
 :help
